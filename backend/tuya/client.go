@@ -91,7 +91,7 @@ func (tc *TuyaClient) signService(method, path string, q url.Values, body []byte
 		urlStr,
 	}, "\n")
 
-	t = strconv.FormatInt(time.Now().Unix(), 13)
+	t = strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)
 
 	fmt.Println("O tempo atual é: " + t)
 	// nonce opcional (vamos deixar vazio)
