@@ -1,1 +1,0 @@
-# monitoramento_de_refrigeradores
