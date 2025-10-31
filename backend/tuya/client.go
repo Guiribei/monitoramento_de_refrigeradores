@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -92,7 +91,6 @@ func (tc *TuyaClient) signService(method, path string, q url.Values, body []byte
 	}, "\n")
 
 	t = strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)
-
 	// nonce opcional (vamos deixar vazio)
 	nonce := ""
 
