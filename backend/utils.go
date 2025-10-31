@@ -1,10 +1,10 @@
 package main
 
-import(
+import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
-	"log"
 )
 
 type jsonErr struct {

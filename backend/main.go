@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/limiter"
+	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
 	"log"
 	"math"
 	"net/http"
@@ -11,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/limiter"
-	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
 
 	"github.com/joho/godotenv"
 )
