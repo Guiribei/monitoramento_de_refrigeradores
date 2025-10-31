@@ -1,26 +1,27 @@
 package tuya
 
-import(
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
-	"errors"
-	"context"
 )
 
 type TuyaClient struct {
 	BaseURL      string
 	DeviceID     string
 	ClientID     string
+	ClientSecret string
 	AccessToken  string
-	Sign         string
-	TimestampT   string
-	SignMethod   string
-	Nonce        string
-	StringToSign string
 
 	httpClient *http.Client
 }
@@ -29,15 +30,11 @@ func NewTuyaClientFromEnv() (*TuyaClient, error) {
 	baseURL := strings.TrimRight(os.Getenv("TUYA_BASE_URL"), "/")
 	deviceID := os.Getenv("TUYA_DEVICE_ID")
 	clientID := os.Getenv("TUYA_CLIENT_ID")
-	accessToken := os.Getenv("TUYA_ACCESS_TOKEN")
-	sign := os.Getenv("TUYA_SIGN")
-	t := os.Getenv("TUYA_TIMESTAMP_T")
-	signMethod := os.Getenv("TUYA_SIGN_METHOD")
-	nonce := os.Getenv("TUYA_NONCE")
-	stringToSign := os.Getenv("TUYA_STRING_TO_SIGN")
+	clientSecret := os.Getenv("TUYA_CLIENT_SECRET")
+	accessToken := os.Getenv("TUYA_ACCESS_TOKEN") // token de negócio já obtido
 
-	if baseURL == "" || deviceID == "" || clientID == "" {
-		return nil, errors.New("TUYA_BASE_URL, TUYA_DEVICE_ID e TUYA_CLIENT_ID são obrigatórios")
+	if baseURL == "" || deviceID == "" || clientID == "" || clientSecret == "" {
+		return nil, errors.New("TUYA_BASE_URL, TUYA_DEVICE_ID, TUYA_CLIENT_ID e TUYA_CLIENT_SECRET são obrigatórios")
 	}
 
 	transport := &http.Transport{
@@ -59,45 +56,76 @@ func NewTuyaClientFromEnv() (*TuyaClient, error) {
 		BaseURL:      baseURL,
 		DeviceID:     deviceID,
 		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		AccessToken:  accessToken,
-		Sign:         sign,
-		TimestampT:   t,
-		SignMethod:   signMethod,
-		Nonce:        nonce,
-		StringToSign: stringToSign,
 		httpClient:   client,
 	}, nil
 }
 
-func (tc *TuyaClient) GetDevice(ctx context.Context) (int, []byte, error) {
-	url := tc.BaseURL + "/v1.0/devices/" + tc.DeviceID
+// assina no padrão "service management":
+// sign = HMAC-SHA256(client_id + access_token + t + nonce + stringToSign, client_secret)
+func (tc *TuyaClient) signService(method, path string, q url.Values, body []byte) (sign, t string) {
+	// SHA256 do corpo (GET => corpo vazio)
+	h := sha256.New()
+	h.Write(body) // nil/[]byte{} => hash do vazio
+	contentSHA := hex.EncodeToString(h.Sum(nil)) // para vazio = e3b0c4...b855 (conforme docs)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	// Sem headers adicionais na assinatura (Signature-Headers), então string vazia
+	headersStr := ""
+
+	// URL = path + (query ordenada, se existir)
+	urlStr := path
+	if q != nil {
+		qs := q.Encode() // já sai em ordem lexicográfica
+		if qs != "" {
+			urlStr += "?" + qs
+		}
+	}
+
+	// stringToSign
+	stringToSign := strings.Join([]string{
+		strings.ToUpper(method),
+		contentSHA,
+		headersStr,
+		urlStr,
+	}, "\n")
+
+	t = strconv.FormatInt(time.Now().Unix(), 10)
+
+	// nonce opcional (vamos deixar vazio)
+	nonce := ""
+
+	// str = client_id + access_token + t + nonce + stringToSign
+	base := tc.ClientID + tc.AccessToken + t + nonce + stringToSign
+
+	mac := hmac.New(sha256.New, []byte(tc.ClientSecret))
+	mac.Write([]byte(base))
+	sign = strings.ToUpper(hex.EncodeToString(mac.Sum(nil)))
+	return sign, t
+}
+
+func (tc *TuyaClient) GetDevice(ctx context.Context) (int, []byte, error) {
+	path := "/v1.0/devices/" + tc.DeviceID
+	full := tc.BaseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
 	if err != nil {
 		return 0, nil, err
 	}
 
-	req.Header.Set("client_id", tc.ClientID)
+	// calcula sign/t p/ esta requisição
+	sign, t := tc.signService(http.MethodGet, path, nil, []byte{})
 
+	// headers obrigatórios
+	req.Header.Set("client_id", tc.ClientID)
 	if tc.AccessToken != "" {
 		req.Header.Set("access_token", tc.AccessToken)
 	}
-	if tc.Sign != "" {
-		req.Header.Set("sign", tc.Sign)
-	}
-	if tc.TimestampT != "" {
-		req.Header.Set("t", tc.TimestampT)
-	}
-	if tc.SignMethod != "" {
-		req.Header.Set("sign_method", tc.SignMethod)
-	}
-	if tc.Nonce != "" {
-		req.Header.Set("nonce", tc.Nonce)
-	}
-
-	// if tc.StringToSign != "" {
-	// 	req.Header.Set("stringToSign", tc.StringToSign)
-	// }
+	req.Header.Set("t", t)
+	req.Header.Set("sign", sign)
+	req.Header.Set("sign_method", "HMAC-SHA256")
+	// Se algum dia você incluir headers custom na assinatura, também envie:
+	// req.Header.Set("Signature-Headers", "header1:header2")
 
 	resp, err := tc.httpClient.Do(req)
 	if err != nil {
@@ -105,6 +133,6 @@ func (tc *TuyaClient) GetDevice(ctx context.Context) (int, []byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20)) // 2MB limit
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	return resp.StatusCode, body, nil
 }
