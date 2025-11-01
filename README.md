@@ -1,19 +1,17 @@
 # Refrigerator Monitor
 
-A React frontend that communicates with a Go backend API.
+Collects data from a smart plug. A React frontend that communicates with a Go backend API.  
 
 ---
 
-## Development
+## Run project locally
 
-- **Frontend (Vite)**: http://localhost:8081  
-- **Backend (Go API)**: http://localhost:8080  
+Go to frontend folder
+```bash
+cd frontend
+```
 
----
-
-## Commands
-
-Install dependencies:
+Install frontend dependencies:
 ```bash
 npm install
 ```
@@ -22,6 +20,19 @@ Run development server:
 ```bash
 npm run dev
 ```
+#### In a separated terminal:
+Go to backend folder
+```bash
+cd backend
+```
+
+Run development backend server:
+```bash
+go run .
+```
+
+- **Frontend (Vite)**: http://localhost:8081  
+- **Backend (Go API)**: http://localhost:8080
 
 ---
 
@@ -29,7 +40,6 @@ npm run dev
 ## Technologies
 
 - [Vite](https://vitejs.dev/)
-- [Nginx](https://nginx.org/)
 - [Go](https://go.dev/)
 
 ---
