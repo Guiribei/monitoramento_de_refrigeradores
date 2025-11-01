@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"encoding/json"
@@ -7,19 +7,19 @@ import (
 	"time"
 )
 
-type jsonErr struct {
+type JsonErr struct {
 	OK          bool   `json:"ok"`
 	Error       string `json:"error"`
 	Description string `json:"description,omitempty"`
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+func WriteJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -29,7 +29,7 @@ func securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func logMiddleware(next http.Handler) http.Handler {
+func LogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
