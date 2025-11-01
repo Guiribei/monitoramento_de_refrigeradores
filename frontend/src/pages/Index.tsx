@@ -16,7 +16,7 @@ interface DeviceData {
   status: DeviceStatus[];
 }
 
-const DEBUG = import.meta.env.DEV; // true em dev, false no build
+const DEBUG = import.meta.env.DEV;
 
 const FALLBACK_DEVICE: DeviceData = {
   name: "Refrigerador",
@@ -30,7 +30,7 @@ const FALLBACK_DEVICE: DeviceData = {
   ],
 };
 
-// Normaliza o payload vindo da Tuya (ou cai no fallback)
+
 const sanitizeTuya = (raw: any): DeviceData => {
   const result = raw?.result ?? {};
   const status: DeviceStatus[] = Array.isArray(result.status)
@@ -44,7 +44,7 @@ const sanitizeTuya = (raw: any): DeviceData => {
   };
 };
 
-// Painel de debug opcional (renderiza só em DEV)
+
 function DebugPanel({ deviceData, lastUpdate }: { deviceData: any; lastUpdate: string }) {
   return (
     <details style={{ marginTop: 24, background: "rgba(0,0,0,.05)", padding: 12, borderRadius: 8 }}>
@@ -67,7 +67,7 @@ const Index = () => {
   const [showWelcome, setShowWelcome] = useState(true);
   const { toast } = useToast();
 
-  // Loga sempre que deviceData muda
+
   useEffect(() => {
     if (DEBUG) {
       console.debug("[STATE] deviceData set:", deviceData);
@@ -81,7 +81,7 @@ const Index = () => {
     setIsRefreshing(true);
 
     const API = "/api";
-    let updated = false; // marca se já setamos algum estado válido
+    let updated = false;
 
     try {
       if (DEBUG) console.debug("[FETCH] iniciando:", `${API}/info`);
@@ -95,10 +95,9 @@ const Index = () => {
         updated = true;
         toast({
           title: "Informação não alterada",
-          description: "Mostrando dados atuais/offline. Tente novamente mais tarde.",
+          description: "Mostrando dados atuais. Tente novamente mais tarde.",
         });
       } else if (!res.ok) {
-        // Qualquer erro => fallback
         if (DEBUG) console.error("[FETCH] erro HTTP:", res.status);
         setDeviceData(FALLBACK_DEVICE);
         updated = true;
@@ -108,7 +107,6 @@ const Index = () => {
           variant: "destructive",
         });
       } else if (!ct.includes("application/json")) {
-        // Resposta não-JSON (provavelmente index.html)
         const text = await res.text();
         if (DEBUG) console.error("[FETCH] resposta não-JSON, primeiros 300 chars:", text.slice(0, 300));
         setDeviceData(FALLBACK_DEVICE);
@@ -119,7 +117,6 @@ const Index = () => {
           variant: "destructive",
         });
       } else {
-        // JSON válido
         const raw = await res.json();
         if (DEBUG) {
           console.debug("[FETCH] JSON cru:", raw);
@@ -147,10 +144,9 @@ const Index = () => {
       });
     } finally {
       setLastUpdate(new Date().toLocaleString("pt-BR"));
-      setShowWelcome(false); // sempre sai da tela de boas-vindas
+      setShowWelcome(false);
       setIsRefreshing(false);
 
-      // Se nada definiu deviceData por algum motivo, garante fallback
       if (!updated) {
         setDeviceData((prev) => prev ?? FALLBACK_DEVICE);
       }
@@ -272,7 +268,7 @@ const Index = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 flex-1">
           <Card className="bg-gradient-card border-border flex flex-col">
             <CardHeader>
-              <CardTitle className="text-foreground text-xl">Status do Switch</CardTitle>
+              <CardTitle className="text-foreground text-xl">Status do Aparelho</CardTitle>
             </CardHeader>
             <CardContent className="flex-1 flex items-center justify-center">
               <div className="flex flex-col items-center gap-6 py-8">
@@ -296,7 +292,7 @@ const Index = () => {
                 </div>
                 <div className="flex justify-between items-center py-3 border-b border-border/50">
                   <span className="text-muted-foreground text-lg">Status:</span>
-                  <span className="text-foreground font-mono text-2xl">{deviceData.online ? "●" : "○"}</span>
+                  <span className="text-foreground font-mono text-2xl">{deviceData.online ? "🔵" : "🔴"}</span>
                 </div>
                 <div className="flex justify-between items-center py-3">
                   <span className="text-muted-foreground text-lg">Consumo adicional:</span>
