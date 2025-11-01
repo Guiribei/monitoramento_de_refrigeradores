@@ -2,52 +2,98 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/limiter"
-	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
 	"log"
-	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
+	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/store"
 )
+
+
+
+func getenvInt(key string, def int) int {
+	if s := os.Getenv(key); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			return v
+		}
+	}
+	return def
+}
 
 func main() {
 	_ = godotenv.Load()
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		os.Exit(1)
+		log.Fatal("PORT obrigatório")
 	}
 
-	windowSec := 3600
-	if s := os.Getenv("RATE_WINDOW_SECONDS"); s != "" {
-		if v, err := strconv.Atoi(s); err == nil && v > 0 {
-			windowSec = v
-		}
+	// janela (s) será usada como período do coletor também
+	windowSec := getenvInt("RATE_WINDOW_SECONDS", 3600)
+
+	// origem p/ CORS (se quiser abrir p/ seu domínio)
+	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+
+		dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		if os.Geteuid() == 0 {
+			dataDir = "/var/lib/tuya-backend"
+		} else {
+			dataDir = "./data"
+	    }
 	}
-	limiter := limiter.NewRateLimiter(time.Duration(windowSec) * time.Second)
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		log.Fatalf("não consegui criar DATA_DIR: %v", err)
+	}
+	dbPath := filepath.Join(dataDir, "tuya.db")
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		log.Fatalf("erro abrindo sqlite: %v", err)
+	}
+	defer st.Close()
 
 	tc, err := tuya.NewTuyaClientFromEnv()
 	if err != nil {
 		log.Fatalf("config inválida: %v", err)
 	}
 
-	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
+	// Coletor: faz 1x no start + a cada windowSec
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		runCollect(ctx, tc, st) // primeira tentativa
+		tick := time.NewTicker(time.Duration(windowSec) * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				runCollect(ctx, tc, st)
+			}
+		}
+	}()
 
 	mux := http.NewServeMux()
 
+	// Health
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	mux.HandleFunc("/dale", func(w http.ResponseWriter, r *http.Request) {
+	// Endpoint público → lê do SQLite (NÃO chama Tuya)
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, jsonErr{OK: false, Error: "method_not_allowed"})
 			return
@@ -57,44 +103,21 @@ func main() {
 			w.Header().Set("Vary", "Origin")
 		}
 
-		allowed, retry := limiter.Allow()
-		if !allowed {
-			retrySec := int(math.Ceil(retry.Seconds()))
-			w.Header().Set("Retry-After", strconv.Itoa(retrySec))
-			w.Header().Set("X-RateLimit-Window-Seconds", strconv.Itoa(int((time.Duration(windowSec)*time.Second)/time.Second)))
-			resetAt := time.Now().Add(retry).UTC().Format(time.RFC3339)
-			w.Header().Set("X-RateLimit-Reset-At", resetAt)
-
-			writeJSON(w, http.StatusTooManyRequests, jsonErr{
+		snap, err := st.GetLatest(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, jsonErr{
 				OK:          false,
-				Error:       "rate_limited",
-				Description: "A rota /dale só pode ser chamada uma vez a cada janela de tempo.",
+				Error:       "no_data",
+				Description: "Ainda não há dados coletados. Tente novamente em instantes.",
 			})
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
-		defer cancel()
-
-		status, body, err := tc.GetDevice(ctx)
-		if err != nil {
-			writeJSON(w, http.StatusBadGateway, jsonErr{OK: false, Error: "tuya_upstream_error", Description: err.Error()})
-			return
-		}
-
+		// devolve exatamente o JSON bruto da Tuya (como antes)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(status)
-
-		trim := strings.TrimSpace(string(body))
-		if strings.HasPrefix(trim, "{") || strings.HasPrefix(trim, "[") {
-			_, _ = w.Write(body)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":     status >= 200 && status < 300,
-			"status": status,
-			"body":   string(body),
-		})
+		w.Header().Set("X-Data-Age-ms", strconv.FormatInt(time.Now().UnixMilli()-snap.FetchedAtMs, 10))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(snap.RawJSON)
 	})
 
 	srv := &http.Server{
@@ -110,4 +133,33 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+// Faz a coleta (chama Tuya) e persiste SOMENTE se status 200 e JSON
+func runCollect(ctx context.Context, tc *tuya.TuyaClient, st *store.Store) {
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	status, body, err := tc.GetDevice(ctx)
+	if err != nil {
+		log.Printf("[collector] tuya error: %v", err)
+		return
+	}
+	trim := strings.TrimSpace(string(body))
+	if status != http.StatusOK || !(strings.HasPrefix(trim, "{") || strings.HasPrefix(trim, "[")) {
+		log.Printf("[collector] ignorado: status=%d body_head=%q", status, trim[:min(40, len(trim))])
+		return
+	}
+	if err := st.SaveLatest(context.Background(), []byte(trim), time.Now().UTC()); err != nil {
+    log.Printf("[collector] save error: %v", err)
+    return
+}
+	log.Printf("[collector] latest atualizado (%d bytes)", len(trim))
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
