@@ -1,6 +1,6 @@
 package limiter
 
-import(
+import (
 	"sync"
 	"time"
 )
@@ -14,7 +14,6 @@ type RateLimiter struct {
 func NewRateLimiter(window time.Duration) *RateLimiter {
 	return &RateLimiter{window: window}
 }
-
 
 func (r *RateLimiter) Allow() (bool, time.Duration) {
 	r.mu.Lock()

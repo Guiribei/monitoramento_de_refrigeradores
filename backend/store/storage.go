@@ -3,8 +3,8 @@ package store
 import (
 	"context"
 	"database/sql"
-	_ "modernc.org/sqlite" // driver puro-Go
 	"errors"
+	_ "modernc.org/sqlite"
 	"time"
 )
 
@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS device_latest (
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Sobrescreve SEMPRE a linha id=1 (somente quando chamada pelo coletor após 200+JSON)
 func (s *Store) SaveLatest(ctx context.Context, raw []byte, fetchedAt time.Time) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO device_latest (id, fetched_at_ms, raw_json)

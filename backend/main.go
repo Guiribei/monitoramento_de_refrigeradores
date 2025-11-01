@@ -13,11 +13,9 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
 	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/store"
+	"github.com/Guiribei/monitoramento_de_refrigeradores/backend/tuya"
 )
-
-
 
 func getenvInt(key string, def int) int {
 	if s := os.Getenv(key); s != "" {
@@ -36,19 +34,17 @@ func main() {
 		log.Fatal("PORT obrigatório")
 	}
 
-	// janela (s) será usada como período do coletor também
 	windowSec := getenvInt("RATE_WINDOW_SECONDS", 3600)
 
-	// origem p/ CORS (se quiser abrir p/ seu domínio)
 	allowedOrigin := os.Getenv("ALLOWED_ORIGIN")
 
-		dataDir := os.Getenv("DATA_DIR")
+	dataDir := os.Getenv("DATA_DIR")
 	if dataDir == "" {
 		if os.Geteuid() == 0 {
 			dataDir = "/var/lib/tuya-backend"
 		} else {
 			dataDir = "./data"
-	    }
+		}
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		log.Fatalf("não consegui criar DATA_DIR: %v", err)
@@ -66,12 +62,11 @@ func main() {
 		log.Fatalf("config inválida: %v", err)
 	}
 
-	// Coletor: faz 1x no start + a cada windowSec
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
-		runCollect(ctx, tc, st) // primeira tentativa
+		runCollect(ctx, tc, st)
 		tick := time.NewTicker(time.Duration(windowSec) * time.Second)
 		defer tick.Stop()
 		for {
@@ -86,13 +81,11 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	// Health
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// Endpoint público → lê do SQLite (NÃO chama Tuya)
 	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeJSON(w, http.StatusMethodNotAllowed, jsonErr{OK: false, Error: "method_not_allowed"})
@@ -113,7 +106,6 @@ func main() {
 			return
 		}
 
-		// devolve exatamente o JSON bruto da Tuya (como antes)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("X-Data-Age-ms", strconv.FormatInt(time.Now().UnixMilli()-snap.FetchedAtMs, 10))
 		w.WriteHeader(http.StatusOK)
@@ -135,7 +127,6 @@ func main() {
 	}
 }
 
-// Faz a coleta (chama Tuya) e persiste SOMENTE se status 200 e JSON
 func runCollect(ctx context.Context, tc *tuya.TuyaClient, st *store.Store) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
@@ -151,9 +142,9 @@ func runCollect(ctx context.Context, tc *tuya.TuyaClient, st *store.Store) {
 		return
 	}
 	if err := st.SaveLatest(context.Background(), []byte(trim), time.Now().UTC()); err != nil {
-    log.Printf("[collector] save error: %v", err)
-    return
-}
+		log.Printf("[collector] save error: %v", err)
+		return
+	}
 	log.Printf("[collector] latest atualizado (%d bytes)", len(trim))
 }
 
