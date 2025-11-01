@@ -292,7 +292,7 @@ const Index = () => {
                 </div>
                 <div className="flex justify-between items-center py-3 border-b border-border/50">
                   <span className="text-muted-foreground text-lg">Status:</span>
-                  <span className="text-foreground font-mono text-2xl">{deviceData.online ? "🔵" : "🔴"}</span>
+                  <span className="text-foreground font-mono text-2xl">{deviceData.online ? "●" : "○"}</span>
                 </div>
                 <div className="flex justify-between items-center py-3">
                   <span className="text-muted-foreground text-lg">Consumo adicional:</span>
